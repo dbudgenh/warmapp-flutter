@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -6,6 +8,7 @@ import 'package:warmapp/models/Sensordata.dart';
 import 'package:warmapp/models/Timeserie.dart';
 import 'package:warmapp/models/metric.dart';
 import 'package:warmapp/services/sensor_service.dart';
+import 'package:warmapp/widgets/zoomable_chart.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.title});
@@ -26,14 +29,17 @@ class _MyHomePageState extends State<HomePage> {
   MapEntry<String, String>? _selectedValue;
   List<MapEntry<String, String>> _devices = [];
 
-  double _minX = double.infinity;
-  double _maxX = double.negativeInfinity;
-  double _minY = double.infinity;
-  double _maxY = double.negativeInfinity;
-
   List<String> modes = ["Day", "Week", "Month"];
   String _currentMode = "Day";
   Metric _currentMetric = Metric.temperature;
+  double _minY = double.infinity;
+  double _maxY = double.negativeInfinity;
+  double _minX = double.infinity;
+  double _maxX = double.negativeInfinity;
+  double _defaultMinX = double.infinity;
+  double _defaultMaxX = double.negativeInfinity;
+  double lastMinXValue = 0;
+  double lastMaxXValue = 0;
 
   Future<List<SensorData>> getSensorData(String? deviceId) async {
     if (deviceId == null) {
@@ -74,7 +80,6 @@ class _MyHomePageState extends State<HomePage> {
 
   void _prepareSensorData(MapEntry<String, String>? device) async {
     List<SensorData> data = await getSensorData(device?.key);
-
     _minX = double.infinity;
     _maxX = double.negativeInfinity;
     _minY = double.infinity;
@@ -105,6 +110,8 @@ class _MyHomePageState extends State<HomePage> {
     }).toList();
     _minX = truncateTime(_minX.toInt(), _currentMode).toDouble();
     _maxX = roundToLastTime(_minX.toInt(), _currentMode).toDouble();
+    _defaultMinX = _minX;
+    _defaultMaxX = _maxX;
 
     setState(() {});
   }
@@ -112,7 +119,7 @@ class _MyHomePageState extends State<HomePage> {
   LineChartData _mainData() {
     return LineChartData(
       lineTouchData: LineTouchData(
-          enabled: true,
+          enabled: false,
           touchTooltipData: LineTouchTooltipData(
             getTooltipItems: (touchedSpots) {
               return touchedSpots
@@ -292,11 +299,66 @@ class _MyHomePageState extends State<HomePage> {
                   })
             ],
           ),
-          Container(
-            padding: EdgeInsets.symmetric(vertical: 50, horizontal: 50),
-            height: 500,
-            child: _values.isEmpty ? Placeholder() : LineChart(_mainData()),
-          ),
+          AspectRatio(
+              aspectRatio: 16 / 9,
+              child: _values.isEmpty
+                  ? Placeholder()
+                  : GestureDetector(
+                      onDoubleTap: () {
+                        setState(() {
+                          _minX = _defaultMinX;
+                          _maxX = _defaultMaxX;
+                        });
+                      },
+                      onHorizontalDragStart: (details) {
+                        lastMinXValue = _minX;
+                        lastMaxXValue = _maxX;
+                      },
+                      onHorizontalDragUpdate: (details) {
+                        var horizontalDistance = details.primaryDelta ?? 0;
+                        if (horizontalDistance == 0) return;
+                        debugPrint("Horizontal distance: $horizontalDistance");
+                        var lastMinMaxDistance =
+                            max(lastMaxXValue - lastMinXValue, 0.0);
+
+                        setState(() {
+                          _minX -=
+                              lastMinMaxDistance * 0.005 * horizontalDistance;
+                          _maxX -=
+                              lastMinMaxDistance * 0.005 * horizontalDistance;
+                        });
+                      },
+                      onScaleStart: (details) {
+                        lastMinXValue = _minX;
+                        lastMaxXValue = _maxX;
+                      },
+                      onScaleUpdate: (details) {
+                        var horizontalScale = details.horizontalScale;
+                        if (horizontalScale == 0) return;
+                        debugPrint("Horizontal scale: $horizontalScale");
+                        var lastMinMaxDistance =
+                            max(lastMaxXValue - lastMinXValue, 0);
+                        var newMinMaxDistance =
+                            max(lastMinMaxDistance / horizontalScale, 10);
+                        var distanceDifference =
+                            newMinMaxDistance - lastMinMaxDistance;
+                        setState(() {
+                          final newMinX = max(
+                            lastMinXValue - distanceDifference,
+                            0.0,
+                          );
+                          final newMaxX = min(
+                            lastMaxXValue + distanceDifference,
+                            _defaultMaxX,
+                          );
+
+                          if (newMaxX - newMinX > 2) {
+                            _minX = newMinX;
+                            _maxX = newMaxX;
+                          }
+                        });
+                      },
+                      child: LineChart(_mainData()))),
         ],
       ),
     );
