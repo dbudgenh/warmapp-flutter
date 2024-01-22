@@ -8,7 +8,6 @@ import 'package:warmapp/models/Sensordata.dart';
 import 'package:warmapp/models/Timeserie.dart';
 import 'package:warmapp/models/metric.dart';
 import 'package:warmapp/services/sensor_service.dart';
-import 'package:warmapp/widgets/zoomable_chart.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.title});
@@ -40,6 +39,7 @@ class _MyHomePageState extends State<HomePage> {
   double _defaultMaxX = double.negativeInfinity;
   double lastMinXValue = 0;
   double lastMaxXValue = 0;
+  double _currentScale = 1.0;
 
   Future<List<SensorData>> getSensorData(String? deviceId) async {
     if (deviceId == null) {
@@ -134,7 +134,12 @@ class _MyHomePageState extends State<HomePage> {
           bottomTitles: AxisTitles(
             sideTitles: _bottomTitles(),
           ),
-          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: AxisTitles(
+              sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 50,
+            getTitlesWidget: (value, meta) => Container(),
+          )),
           topTitles: AxisTitles(sideTitles: _topTitles()),
           leftTitles: AxisTitles(
             sideTitles: _leftTitles(),
@@ -198,11 +203,11 @@ class _MyHomePageState extends State<HomePage> {
   String getDateFormat(DateTime date) {
     switch (_currentMode) {
       case "Day":
-        return DateFormat("dd.MMM").format(date);
+        return DateFormat("dd.MMM.yyyy").format(date);
       case "Week":
-        return DateFormat("dd.MMM").format(date);
+        return DateFormat("dd.MMM.yyyy").format(date);
       case "Month":
-        return DateFormat("dd.MMM").format(date);
+        return DateFormat("dd.MMM.yyyy").format(date);
       default:
         throw ArgumentError(
             "Invalid mode. Supported modes are: 'Day', 'Week', 'Month'");
@@ -333,30 +338,30 @@ class _MyHomePageState extends State<HomePage> {
                         lastMaxXValue = _maxX;
                       },
                       onScaleUpdate: (details) {
-                        var horizontalScale = details.horizontalScale;
-                        if (horizontalScale == 0) return;
-                        debugPrint("Horizontal scale: $horizontalScale");
-                        var lastMinMaxDistance =
-                            max(lastMaxXValue - lastMinXValue, 0);
-                        var newMinMaxDistance =
-                            max(lastMinMaxDistance / horizontalScale, 10);
-                        var distanceDifference =
-                            newMinMaxDistance - lastMinMaxDistance;
-                        setState(() {
-                          final newMinX = max(
-                            lastMinXValue - distanceDifference,
-                            0.0,
-                          );
-                          final newMaxX = min(
-                            lastMaxXValue + distanceDifference,
-                            _defaultMaxX,
-                          );
+                        double currentRange = _maxX - _minX;
+                        double scale = details.scale;
+                        // Limit the scale to prevent too rapid zooming
+                        double maxScale = 2.0; // maximum allowed scale factor
+                        double minScale = 0.5; // minimum allowed scale factor
+                        scale = scale.clamp(minScale, maxScale);
+                        scale = sqrt(scale);
 
-                          if (newMaxX - newMinX > 2) {
-                            _minX = newMinX;
-                            _maxX = newMaxX;
-                          }
-                        });
+                        // Calculate the new range after zooming
+                        double newRange = currentRange / scale;
+
+                        // Calculate new minX and maxX uniformly
+                        double rangeDifference = currentRange - newRange;
+                        debugPrint("scale $scale");
+                        debugPrint("rangeDifference $rangeDifference");
+                        double newMinX = _minX + (rangeDifference / 2);
+                        double newMaxX = _maxX - (rangeDifference / 2);
+                        // Update the state only if there is a change in values
+                        if (newMinX != _minX || newMaxX != _maxX) {
+                          setState(() {
+                            _minX = newMinX.toDouble();
+                            _maxX = newMaxX.toDouble();
+                          });
+                        }
                       },
                       child: LineChart(_mainData()))),
         ],
